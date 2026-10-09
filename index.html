@@ -29,53 +29,59 @@ const norm=s=>String(s).toLowerCase().replace(/\bfirst\b/g,'1').replace(/\bsecon
 const ok=(q,a)=>{if(q.t!='txt')return a===q.c;const x=norm(a);return x.length>=3&&q.acc.some(c=>{c=norm(c);return x===c||c.startsWith(x)})};
 const ansT=()=>{const v=$('#ta').value.trim();if(v)pref().update({a:v,ar:G.round})};
 uid=(()=>{const r=()=>Math.random().toString(36).slice(2,10);try{return sessionStorage.bbu||(sessionStorage.bbu=r())}catch(e){return r()}})();home();
-function home(){try{peer&&peer.destroy()}catch(e){}peer=null;hc=null;conns={};G=null;P=[];code="";isHost=false;if(bible){app.innerHTML=hdr+bhtml(false);return}app.innerHTML=bk+hdr+`<div class=card><b>Join a game</b><input id=jc placeholder="Game code" maxlength=4 style="text-transform:uppercase;text-align:center;font-size:24px"><input id=jn placeholder="Your name" maxlength=16><button onclick="join()">Join</button></div>
-<div class=card><b>Host a game</b><div class=row><div>Teams<select id=ht><option>2<option>3<option>4</select></div><div>Rounds<input id=hr type=number value=6 min=2 max=30></div></div><button class=g onclick="host()">Create game</button></div>`}
-function host(){const t=+$("#ht").value,r=Math.max(2,Math.min(30,+$("#hr").value||6));code=Math.random().toString(36).slice(2,6).toUpperCase();isHost=true;
+function home(){code="";try{peer&&peer.destroy()}catch(e){}peer=null;hc=null;conns={};G=null;P=[];code="";isHost=false;if(bible){app.innerHTML=hdr+bhtml(false);return}app.innerHTML=bk+hdr+`<div class=card><b>Join a game</b><input id=jc placeholder="Game code" maxlength=4 style="text-transform:uppercase;text-align:center;font-size:24px"><input id=jn placeholder="Your name" maxlength=16><button onclick="join()">Join</button></div>
+<div class=card><b>Host a game</b><div class=row><div>Teams<select id=ht><option>2<option>3<option>4</select></div></div><button class=g onclick="host()">Create game</button></div>`}
+function host(){const t=+$("#ht").value;code=Math.random().toString(36).slice(2,6).toUpperCase();isHost=true;
 peer=new Peer("bbattle-"+code);peer.on("error",e=>{if(e.type=="unavailable-id")host();else alert("Connection problem: "+e.type)});
-peer.on("open",()=>{G={host:uid,teams:t,rounds:r,phase:"lobby",round:0,scores:Array(t).fill(0),q:null};P=[];push()});
+peer.on("open",()=>{G={host:uid,teams:t,phase:"lobby",round:0,total:0,scores:Array(t).fill(0),cur:null};P=[];push()});
 peer.on("connection",c=>c.on("data",m=>onMsg(c,m)))}
-function onMsg(c,m){if(!m||!G)return;if(m.t=="join"){conns[m.uid]=c;if(!P.find(x=>x.id==m.uid)){const cnt=Array.from({length:G.teams},(_,i)=>P.filter(x=>x.team===i).length);P.push({id:m.uid,name:String(m.name).slice(0,16),team:G.phase=="lobby"?null:cnt.indexOf(Math.min(...cnt))})}push()}
+function onMsg(c,m){if(!m||!G)return;if(m.t=="join"){if(banned.has(m.uid)){c.send({t:"kick"});return}conns[m.uid]=c;c.on("close",()=>{if(G&&G.phase=="lobby"&&conns[m.uid]===c){delete conns[m.uid];P=P.filter(x=>x.id!=m.uid);push()}});if(!P.find(x=>x.id==m.uid)){const cnt=Array.from({length:G.teams},(_,i)=>P.filter(x=>x.team===i).length);P.push({id:m.uid,name:String(m.name).slice(0,16),team:G.phase=="lobby"?null:cnt.indexOf(Math.min(...cnt))})}push()}
 else if(m.t=="u"){const p=P.find(x=>x.id==m.uid);if(p&&m.o){["a","ar","qr","qt","q"].forEach(k=>k in m.o&&(p[k]=m.o[k]));push()}}}
 function join(){const c=$("#jc").value.trim().toUpperCase(),n=$("#jn").value.trim();if(c.length<4||!n)return alert("Enter the code and your name");code=c;isHost=false;const fail=m=>{alert(m);home()};
 const to=setTimeout(()=>fail("Couldn't reach that game. Check the code and make sure the host's page is still open."),12000);peer=new Peer();
 peer.on("error",e=>{clearTimeout(to);fail(e.type=="peer-unavailable"?"No game with that code":"Connection problem: "+e.type)});
-peer.on("open",()=>{hc=peer.connect("bbattle-"+c,{reliable:true});hc.on("open",()=>{clearTimeout(to);hc.send({t:"join",uid,name:n})});hc.on("data",m=>{G=m.G;P=m.P;go()});hc.on("close",()=>{if(code)fail("Disconnected from the host")})})}
-const ct=()=>(G.round-1)%G.teams;
-function logic(){if(!G||!isHost)return;const k=G.phase+G.round;if(acted===k)return;
-if(G.phase=="create"){const q=P.filter(p=>p.team===ct()&&p.qr===G.round&&p.q).sort((a,b)=>a.qt-b.qt)[0];if(q){acted=k;gref().update({phase:"answer",q:q.q,qby:q.name})}}
-if(G.phase=="answer"){const a=P.filter(p=>p.team!=null&&p.team!==ct());if(a.length&&a.every(p=>p.ar===G.round))reveal()}}
-function reveal(){acted=G.phase+G.round;const sc=[...G.scores],gain=[];for(let t=0;t<G.teams;t++){let r=0,w=0;if(t!==ct())P.filter(p=>p.team===t&&p.ar===G.round).forEach(p=>ok(G.q,p.a)?r++:w++);const g=r>w?1:0;gain.push(g);sc[t]+=g}gref().update({phase:"reveal",scores:sc,gain})}
-function start(){[...P].sort(()=>Math.random()-.5).forEach((p,i)=>p.team=i%G.teams);gref().update({phase:"create",round:1,q:null})}
-function next(){G.round>=G.rounds?gref().update({phase:"done"}):gref().update({round:G.round+1,phase:"create",q:null})}
-function board(){const m=Math.max(...G.scores);return G.scores.map((s,i)=>`<div class=team style="background:${TC[i]}"><span>${TN[i]}${G.phase!="lobby"&&G.phase!="done"&&i===ct()?" ✍️":""} <small>(${P.filter(p=>p.team===i).length})</small></span><span>${s}${G.phase=="done"&&s==m?" 🏆":""}</span></div>`).join("")}
+peer.on("open",()=>{hc=peer.connect("bbattle-"+c,{reliable:true});hc.on("open",()=>{clearTimeout(to);hc.send({t:"join",uid,name:n})});hc.on("data",m=>{if(m.t=="kick"){code="";alert("You were removed from the game by the host.");home();return}G=m.G;P=m.P;go()});hc.on("close",()=>{if(code)fail("Disconnected from the host")})})}
+let Q=[],banned=new Set();const shuf=a=>[...a].sort(()=>Math.random()-.5);
+function logic(){if(!G||!isHost||G.phase!="answer")return;const k=G.phase+G.round;if(acted===k)return;const a=P.find(p=>p.id===G.cur.to);if(!a){acted=k;next();return}if(a.ar===G.round)reveal()}
+function reveal(){const a=P.find(p=>p.id===G.cur.to),r=!!a&&a.ar===G.round,right=r&&ok(G.cur.q,a.a),sc=[...G.scores];acted=G.phase+G.round;if(right)sc[G.cur.toTeam]++;gref().update({phase:"reveal",scores:sc,gain:{name:G.cur.toName,team:G.cur.toTeam,right:!!right,ans:r?a.a:null}})}
+function start(){shuf(P).forEach((p,i)=>p.team=i%G.teams);gref().update({phase:"write"})}
+function begin(){Q=[];const T=G.teams;for(let t=0;t<T;t++){const qs=shuf(P.filter(p=>p.team===t&&p.q)),an=shuf(P.filter(p=>p.team===(t+1)%T));if(!an.length)continue;qs.forEach((p,i)=>{const a=an[i%an.length];Q.push({q:p.q,by:p.name,byTeam:t,to:a.id,toName:a.name,toTeam:a.team})})}
+Q=shuf(Q);if(!Q.length)return gref().update({phase:"done"});gref().update({phase:"answer",round:1,total:Q.length,cur:Q[0],gain:null})}
+function next(){G.round>=G.total?gref().update({phase:"done"}):gref().update({round:G.round+1,phase:"answer",cur:Q[G.round],gain:null})}
+function kick(id){const p=P.find(x=>x.id==id);if(!p||!confirm("Remove "+p.name+" from the game?"))return;banned.add(id);const c=conns[id];try{c&&c.send({t:"kick"})}catch(e){}setTimeout(()=>{try{c&&c.close()}catch(e){}},400);delete conns[id];P=P.filter(x=>x.id!=id);push()}
+function hback(){if(P.length&&!confirm("End this game and go back? Players will be disconnected."))return;home()}
+function board(){const m=Math.max(...G.scores);return G.scores.map((s,i)=>`<div class=team style="background:${TC[i]}"><span>${TN[i]} <small>(${P.filter(p=>p.team===i).length})</small></span><span>${s}${G.phase=="done"&&s==m?" 🏆":""}</span></div>`).join("")}
+const roster=()=>`<div class=card><b>Players</b><div>${P.map(p=>`<span class=chip>${esc(p.name)}${p.team!=null?" · "+TN[p.team]:""}${G.phase=="write"?(p.q?" ✅":" ✍️"):""} <a href="#" onclick="kick('${p.id}');return false" style="color:var(--ac);text-decoration:none">✕</a></span>`).join("")||'<span class=mut>Waiting for players…</span>'}</div></div>`;
+const resCard=()=>`<div class="card c">${esc(G.gain.name)} (${TN[G.gain.team]}) ${G.gain.right?"got it right! +1 point 🎉":"missed it."}</div>`;
+const doneCard=()=>`<div class="card c"><h2>Battle over!</h2>${G.scores.map((s,i)=>s==Math.max(...G.scores)?TN[i]+" team wins! 🏆":"").filter(Boolean).join("<br>")}</div>`;
 function qhtml(q,mine,show,pick){const body=q.t=="txt"?(show?`<p>✅ Accepted: <b>${q.acc.map(esc).join(" / ")}</b></p>`+(mine!==-1?`<p class=mut>Your answer: ${esc(mine)}</p>`:""):pick?`<input id=ta placeholder="Type your answer" autocomplete=off><button onclick="ansT()">Lock in answer</button>`:mine!==-1?`<p class=mut>Locked in: ${esc(mine)}</p>`:""):q.o.map((o,i)=>`<button class="opt ${show&&i===q.c?"ok":""} ${mine===i?"me":""}" ${pick?`onclick="ans(${i})"`:"disabled"}>${"ABCD"[i]}. ${esc(o)}</button>`).join("");return `<div class=card><b>${esc(q.text)}</b>${q.ref?`<div class=mut>Related: ${esc(q.ref)}</div>`:""}${body}${show&&q.vt?`<p class=mut>📖 ${esc(q.ref)} — ${esc(q.vt)}</p>`:""}</div>`}
 const ans=i=>pref().update({a:i,ar:G.round});
 function blist(q,pick){q=norm(q);let last="";return B.map((v,i)=>[v,i]).filter(([v])=>norm(v[0]+v[1]).includes(q)).map(([v,i])=>{const b=v[0].replace(/\s\d+:\d+$/,""),hd=b!==last?`<div class=bh>${b}</div>`:"";last=b;return hd+`<div class=v><b>${v[0].slice(b.length+1)}</b> ${esc(v[1])}${pick?`<button onclick="use(${i})">Use</button>`:""}</div>`}).join("")||"No match"}
 const bl=(q,p)=>{bq=q;$("#bl").innerHTML=blist(q,p)};
 function bhtml(pick){return `<button class=g onclick="closeB()">← Back</button><div class=card><b>📖 Bible (KJV)</b><input placeholder="Search a word or reference" value="${esc(bq)}" oninput="bl(this.value,${pick})"><div id=bl>${blist(bq,pick)}</div><button class=g onclick="closeB()">← Back</button></div>`}
 function use(i){draft.ref=B[i][0];draft.vt=B[i][1];bible=false;go(1)}
-function form(){const d=draft,m=(t,l)=>`<button class="${d.t==t?"":"g"}" onclick="draft.t='${t}';draft.c=0;go(1)">${l}</button>`;return `<div class=card><b>Write a question for the other team${G.teams>2?"s":""}</b><div class=row>${m("mc","4 choices")}${m("tf","True/False")}${m("txt","Typed")}</div>
+function form(tm){const d=draft,m=(t,l)=>`<button class="${d.t==t?"":"g"}" onclick="draft.t='${t}';draft.c=0;go(1)">${l}</button>`;return `<div class=card><b>Write your question for the ${TN[((tm||0)+1)%G.teams]} team</b><div class=row>${m("mc","4 choices")}${m("tf","True/False")}${m("txt","Typed")}</div>
 <textarea rows=3 placeholder="${d.t=="tf"?"Write a statement":"Write a question"}" oninput="draft.q=this.value">${esc(d.q)}</textarea>
 ${d.t=="mc"?d.o.map((o,i)=>`<input placeholder="Choice ${"ABCD"[i]}" value="${esc(o)}" oninput="draft.o[${i}]=this.value">`).join(""):""}
 ${d.t=="txt"?`<input placeholder="Accepted answers, separated by commas (e.g. 2 Corinthians, 2 Cor)" value="${esc(d.acc)}" oninput="draft.acc=this.value"><div class=mut>Capitals, spaces and punctuation don't matter, and short forms like "2cor" count.</div>`:`<label>Correct answer</label><select onchange="draft.c=+this.value">${(d.t=="tf"?["True","False"]:["A","B","C","D"]).map((o,i)=>`<option value=${i} ${d.c===i?"selected":""}>${o}</option>`).join("")}</select>`}
 <div class=mut>${d.ref?"Verse attached: "+esc(d.ref):"Tip: attach a verse from the Bible"}</div><button class=g onclick="bible=true;go(1)">📖 Open Bible & attach verse</button><button onclick="submitQ()">Send to battle ⚔️</button></div>`}
 function submitQ(){const d=draft,acc=d.acc.split(/[,;]/).map(x=>x.trim()).filter(Boolean),o=d.t=="tf"?["True","False"]:d.t=="txt"?[]:d.o.map(x=>x.trim());if(!d.q.trim()||o.some(x=>!x)||(d.t=="txt"&&!acc.length))return alert("Fill in the question and the answer(s)");pref().update({qr:G.round,qt:Date.now(),q:{t:d.t,text:d.q.trim(),o,c:d.c,acc,ref:d.ref,vt:d.vt}});draft=nd()}
 function go(force){if(!G){if(code)app.innerHTML=hdr+'<div class="card c">Loading game…</div>';return}logic();const me=P.find(p=>p.id===uid)||{};
-const key=[G.phase,G.round,me.team,me.qr===G.round,me.ar===G.round,bible,isHost?P.length+JSON.stringify(G.scores):P.length].join();if(!force&&key===lastKey)return;lastKey=key;
-if(bible){app.innerHTML=hdr+bhtml(!isHost&&me.team!=null&&G.phase=="create"&&me.team===ct()&&me.qr!==G.round);return}const top=`${bk}${hdr}<div class="card c mut">Code <b style="color:var(--ac);letter-spacing:3px">${code}</b>${G.round?` · Round ${G.round}/${G.rounds}`:""}</div>`;let h="";
-if(isHost){if(G.phase=="lobby")h=`<div class=card><div class=c>Open this site on your device and enter code</div><div class=code>${code}</div><div>${P.map(p=>`<span class=chip>${esc(p.name)}</span>`).join("")||'<span class=mut>Waiting for players…</span>'}</div><button ${P.length<G.teams?"disabled":""} onclick="start()">Split into ${G.teams} teams & start</button></div>`;
-else{h=`<div class=card>${board()}</div>`;if(G.phase=="create")h+=`<div class="card c">${TN[ct()]} team is writing a question…<button class=g onclick="next()">Skip this round</button></div>`;
-if(G.phase=="answer"){const a=P.filter(p=>p.team!=null&&p.team!==ct());h+=qhtml(G.q,-1,false,false)+`<div class="card c">Written by ${esc(G.qby)} (${TN[ct()]}) · ${a.filter(p=>p.ar===G.round).length}/${a.length} answered<button onclick="reveal()">Reveal answer</button></div>`}
-if(G.phase=="reveal")h+=qhtml(G.q,-1,true,false)+`<div class="card c">${G.gain.map((g,i)=>g?`<span class=chip style="background:${TC[i]};color:#fff">${TN[i]} +1</span>`:"").join("")||"No points this round"}<button onclick="next()">${G.round>=G.rounds?"Final results":"Next round"}</button></div>`;
-if(G.phase=="done")h+=`<div class="card c"><h2>Battle over!</h2>${G.scores.map((s,i)=>s==Math.max(...G.scores)?TN[i]+" team wins! 🏆":"").join("<br>")}<button class=g onclick="home()">New game</button></div>`}}
-else if(bible)h=bhtml(me.team!=null&&G.phase=="create"&&me.team===ct());
+const key=[G.phase,G.round,me.team,!!me.q,me.ar===G.round,bible,isHost?P.length+"|"+P.filter(p=>p.q).length+"|"+P.filter(p=>p.ar===G.round).length+JSON.stringify(G.scores):P.length].join();if(!force&&key===lastKey)return;lastKey=key;
+if(bible){app.innerHTML=hdr+bhtml(!isHost&&me.team!=null&&G.phase=="write"&&!me.q);return}
+const top=`${bk}${hdr}<div class="card c mut">Code <b style="color:var(--ac);letter-spacing:3px">${code}</b>${G.total&&G.phase!="write"?` · Question ${G.round}/${G.total}`:""}</div>`,c=G.cur;let h="";
+if(isHost){if(G.phase=="lobby")h=`<div class=card><div class=c>Open this site on your device and enter code</div><div class=code>${code}</div></div>`+roster()+`<button ${P.length<G.teams?"disabled":""} onclick="start()">Split into ${G.teams} teams</button><button class=g onclick="hback()">← Back</button>`;
+else{h=`<div class=card>${board()}</div>`;
+if(G.phase=="write"){const n=P.filter(p=>p.q).length;h+=`<div class="card c">Everyone writes one question for the next team.<br><b>${n}/${P.length}</b> written<button ${n?"":"disabled"} onclick="begin()">${n==P.length?"Start battle ⚔️":"Start anyway"}</button></div>`+roster()}
+if(G.phase=="answer")h+=qhtml(c.q,-1,false,false)+`<div class="card c">${esc(c.toName)} (${TN[c.toTeam]}) is answering a question from ${esc(c.by)} (${TN[c.byTeam]})<button onclick="reveal()">Reveal answer</button><button class=g onclick="next()">Skip</button></div>`;
+if(G.phase=="reveal")h+=qhtml(c.q,G.gain.ans??-1,true,false)+resCard()+`<button onclick="next()">${G.round>=G.total?"Final results":"Next question"}</button>`;
+if(G.phase=="done")h+=doneCard()+`<button class=g onclick="home()">New game</button>`}}
 else{const tm=me.team,t=tm==null?"":`<div class=team style="background:${TC[tm]}"><span>You're on ${TN[tm]} team</span><span>${G.scores[tm]} pts</span></div>`;
-if(G.phase=="lobby")h=`<div class="card c"><h2>You're in, ${esc(me.name||"")}!</h2>${P.length} player${P.length==1?"":"s"} here. Waiting for the host to start…</div>`;
-else{h=t;const mine=tm===ct();
-if(G.phase=="create")h+=mine?(me.qr===G.round?'<div class="card c">Question sent! Waiting for the battle…</div>':form()):`<div class="card c">${TN[ct()]} team is writing a question.<br>Get ready!</div><button class=g onclick="bible=true;go(1)">📖 Open Bible</button>`;
-if(G.phase=="answer")h+=mine?'<div class="card c">Your question is live! The other team is answering…</div>':qhtml(G.q,me.ar===G.round?me.a:-1,false,me.ar!==G.round)+`<button class=g onclick="bible=true;go(1)">📖 Open Bible</button>`;
-if(G.phase=="reveal")h+=qhtml(G.q,me.ar===G.round?me.a:-1,true,false)+`<div class="card c">${G.gain[tm]?"Your team scored! +1":"No point for your team"}</div><div class=card>${board()}</div>`;
-if(G.phase=="done")h+=`<div class=card>${board()}</div><div class="card c"><h2>Battle over!</h2></div>`}}
+if(G.phase=="lobby")h=`<div class="card c"><h2>You're in, ${esc(me.name||"")}!</h2>${P.length} player${P.length==1?"":"s"} here. Waiting for the host to start…</div><button class=g onclick="home()">Leave game</button>`;
+else{h=t;
+if(G.phase=="write")h+=me.q?'<div class="card c">Question sent! Waiting for everyone else…</div>':form(tm);
+if(G.phase=="answer")h+=c.to===uid?qhtml(c.q,me.ar===G.round?me.a:-1,false,me.ar!==G.round):qhtml(c.q,-1,false,false)+`<div class="card c">${esc(c.toName)} (${TN[c.toTeam]}) is answering…</div>`;
+if(G.phase=="reveal")h+=qhtml(c.q,c.to===uid&&me.ar===G.round?me.a:-1,true,false)+resCard()+`<div class=card>${board()}</div>`;
+if(G.phase=="done")h+=`<div class=card>${board()}</div>`+doneCard()}}
 app.innerHTML=top+h}
 </script></body></html>
