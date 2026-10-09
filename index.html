@@ -22,7 +22,10 @@ const esc=s=>String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",
 let peer,hc,conns={},uid,code,isHost=false,G=null,P=[],acted="",lastKey="",bible=false,bq="";
 const nd=()=>({t:"mc",q:"",o:["","","",""],c:0,acc:"",ref:"",vt:""});let draft=nd();
 const gref=()=>({update:async o=>{Object.assign(G,o);push()}}),pref=()=>({update:async o=>{if(hc&&hc.open)hc.send({t:"u",uid,o})}});
-const push=()=>{const m={G,P};Object.values(conns).forEach(c=>c.open&&c.send(m));go()};
+const CFG={debug:0,config:{iceServers:[{urls:"stun:stun.l.google.com:19302"},{urls:"stun:stun1.l.google.com:19302"},{urls:"stun:stun2.l.google.com:19302"},{urls:"stun:global.stun.twilio.com:3478"},{urls:["turn:openrelay.metered.ca:80","turn:openrelay.metered.ca:443","turn:openrelay.metered.ca:443?transport=tcp"],username:"openrelayproject",credential:"openrelayproject"}]}};
+let pt=0;const slim=u=>P.map(p=>p.id==u?{...p,qs:(p.qs||[]).map(()=>0)}:{id:p.id,name:p.name,team:p.team});
+const flush=()=>{pt=0;Object.entries(conns).forEach(([u,c])=>{if(c.open)try{c.send({G,P:slim(u)})}catch(e){}});go()};
+const push=()=>{if(!pt)pt=setTimeout(flush,120)};
 const hdr='<h1>⚔️ Bible Battle<small>Team vs team · Scripture trivia</small></h1>';
 const bk='<button class=bk aria-label=Bible onclick="openB()">📖</button>',openB=()=>{bible=true;G?go(1):home()},closeB=()=>{bible=false;G?go(1):home()};
 const norm=s=>String(s).toLowerCase().replace(/\bfirst\b/g,'1').replace(/\bsecond\b/g,'2').replace(/\bthird\b/g,'3').replace(/[^a-z0-9]/g,'');
@@ -32,16 +35,22 @@ uid=(()=>{const r=()=>Math.random().toString(36).slice(2,10);try{return sessionS
 function home(){code="";try{peer&&peer.destroy()}catch(e){}peer=null;hc=null;conns={};G=null;P=[];code="";isHost=false;if(bible){app.innerHTML=hdr+bhtml(false);return}app.innerHTML=bk+hdr+`<div class=card><b>Join a game</b><input id=jc placeholder="Game code" maxlength=4 style="text-transform:uppercase;text-align:center;font-size:24px"><input id=jn placeholder="Your name" maxlength=16><button onclick="join()">Join</button></div>
 <div class=card><b>Host a game</b><div class=row><div>Teams<select id=ht><option>2<option>3<option>4</select></div><div>Questions each<select id=hq><option>1<option>2<option>3<option>4<option>5</select></div><div>Points to win<input id=hp type=number value=5 min=1 max=50></div></div><button class=g onclick="host()">Create game</button></div>`}
 function host(){const t=+$("#ht").value,qn=+$("#hq").value||1,tp=Math.max(1,Math.min(50,+$("#hp").value||5));code=Math.random().toString(36).slice(2,6).toUpperCase();isHost=true;
-peer=new Peer("bbattle-"+code);peer.on("error",e=>{if(e.type=="unavailable-id")host();else alert("Connection problem: "+e.type)});
+peer=new Peer("bbattle-"+code,CFG);peer.on("error",e=>{if(e.type=="unavailable-id")host();else if(["network","server-error","socket-error","socket-closed"].includes(e.type))try{peer.reconnect()}catch(x){}});peer.on("disconnected",()=>{try{peer.reconnect()}catch(x){}});
 peer.on("open",()=>{G={host:uid,teams:t,qn,target:tp,phase:"lobby",round:0,rd:0,qi:0,total:0,rounds:0,scores:Array(t).fill(0),cur:null};P=[];push()});
-peer.on("connection",c=>c.on("data",m=>onMsg(c,m)))}
+peer.on("connection",c=>{c.on("error",()=>{});c.on("data",m=>onMsg(c,m))})}
 function onMsg(c,m){if(!m||!G)return;if(m.t=="bye"){const old=conns[m.uid];setTimeout(()=>{if(conns[m.uid]===old){delete conns[m.uid];P=P.filter(x=>x.id!=m.uid);push()}},3000);return}if(m.t=="join"){if(banned.has(m.uid)){c.send({t:"kick"});return}conns[m.uid]=c;c.on("close",()=>setTimeout(()=>{if(G&&conns[m.uid]===c){delete conns[m.uid];P=P.filter(x=>x.id!=m.uid);push()}},3000));if(!P.find(x=>x.id==m.uid)){const cnt=Array.from({length:G.teams},(_,i)=>P.filter(x=>x.team===i).length);P.push({id:m.uid,name:String(m.name).slice(0,16),team:G.phase=="lobby"?null:cnt.indexOf(Math.min(...cnt))})}push()}
 else if(m.t=="q"){const p=P.find(x=>x.id==m.uid),q=m.q;if(p&&G.phase=="write"&&q&&typeof q=="object"&&(p.qs||(p.qs=[])).length<G.qn){p.qs.push({t:["mc","tf","txt"].includes(q.t)?q.t:"mc",text:String(q.text).slice(0,500),o:(q.o||[]).slice(0,4).map(x=>String(x).slice(0,200)),c:+q.c||0,acc:(q.acc||[]).slice(0,10).map(x=>String(x).slice(0,100)),ref:String(q.ref||"").slice(0,40),vt:String(q.vt||"").slice(0,600)});push()}}
 else if(m.t=="u"){const p=P.find(x=>x.id==m.uid);if(p&&m.o){["a","ar","qr","qt","q"].forEach(k=>k in m.o&&(p[k]=m.o[k]));push()}}}
-function join(){const c=$("#jc").value.trim().toUpperCase(),n=$("#jn").value.trim();if(c.length<4||!n)return alert("Enter the code and your name");code=c;isHost=false;const fail=m=>{alert(m);home()};
-const to=setTimeout(()=>fail("Couldn't reach that game. Check the code and make sure the host's page is still open."),12000);peer=new Peer();
-peer.on("error",e=>{clearTimeout(to);fail(e.type=="peer-unavailable"?"No game with that code":"Connection problem: "+e.type)});
-peer.on("open",()=>{hc=peer.connect("bbattle-"+c,{reliable:true});hc.on("open",()=>{clearTimeout(to);hc.send({t:"join",uid,name:n})});hc.on("data",m=>{if(m.t=="kick"){code="";alert("You were removed from the game by the host.");home();return}G=m.G;P=m.P;go()});hc.on("close",()=>{if(code)fail("Disconnected from the host")})})}
+function join(){const c=$("#jc").value.trim().toUpperCase(),n=$("#jn").value.trim();if(c.length<4||!n)return alert("Enter the code and your name");connect(c,n,0)}
+let jt=0;
+function connect(c,n,tries){const id=++jt;code=c;isHost=false;try{peer&&peer.destroy()}catch(e){}hc=null;let ok=false;
+const fail=m=>{if(id!==jt)return;jt++;alert(m);home()},retry=()=>{if(id!==jt)return;if(tries<3)setTimeout(()=>{if(id===jt)connect(c,n,tries+1)},800+Math.random()*2500);else fail("Couldn't connect. Check the code, make sure the host's page is still open, and try again (a phone hotspot can help on strict Wi-Fi).")};
+const to=setTimeout(retry,12000);peer=new Peer(undefined,CFG);
+peer.on("error",e=>{clearTimeout(to);if(e.type=="peer-unavailable"&&tries>=2)fail("No game with that code");else retry()});
+peer.on("open",()=>{if(id!==jt)return;hc=peer.connect("bbattle-"+c,{reliable:true,serialization:"json"});
+hc.on("open",()=>{clearTimeout(to);if(id!==jt)return;ok=true;hc.send({t:"join",uid,name:n})});
+hc.on("data",m=>{if(id!==jt)return;if(m.t=="kick"){code="";alert("You were removed from the game by the host.");home();return}G=m.G;P=m.P;go()});
+hc.on("close",()=>{if(id!==jt||!code)return;ok?setTimeout(()=>{if(id===jt)connect(c,n,0)},1000):retry()})})}
 let Q=[],RES=[],banned=new Set();const ansTxt=(q,a)=>q.t=="txt"?String(a):(q.o[a]??"?"),corTxt=q=>q.t=="txt"?q.acc.join(" / "):q.o[q.c];const shuf=a=>[...a].sort(()=>Math.random()-.5);
 function logic(){if(!G||!isHost||G.phase!="answer")return;const k=G.phase+G.round;if(acted===k)return;const a=P.find(p=>p.id===G.cur.to);if(!a){acted=k;reveal();return}if(a.ar===G.round)reveal()}
 function reveal(){const a=P.find(p=>p.id===G.cur.to),r=!!a&&a.ar===G.round,right=r&&ok(G.cur.q,a.a),sc=[...G.scores];acted=G.phase+G.round;if(right)sc[G.cur.toTeam]++;RES.push({text:G.cur.q.text,by:G.cur.by,bt:G.cur.byTeam,to:G.cur.toName,tt:G.cur.toTeam,ans:r?ansTxt(G.cur.q,a.a):"(no answer)",right:!!right,cor:corTxt(G.cur.q)});gref().update({phase:"reveal",scores:sc,gain:{name:G.cur.toName,team:G.cur.toTeam,right:!!right,ans:r?a.a:null}})}
