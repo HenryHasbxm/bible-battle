@@ -38,7 +38,7 @@ const esc=s=>String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",
 let lc="",ln="",peer,hc,conns={},uid,code,isHost=false,G=null,P=[],acted="",lastKey="",bible=false,bq="";
 const nd=()=>({t:"mc",q:"",o:["","","",""],c:0,acc:"",ref:"",vt:""});let draft=nd();
 const gref=()=>({update:async o=>{Object.assign(G,o);push()}}),pref=()=>({update:async o=>{if(hc&&hc.open)hc.send({t:"u",uid,o})}});
-const CFG={debug:0,config:{iceServers:[{urls:"stun:stun.l.google.com:19302"},{urls:"stun:stun1.l.google.com:19302"},{urls:"stun:stun2.l.google.com:19302"},{urls:"stun:global.stun.twilio.com:3478"},{urls:["turn:openrelay.metered.ca:80","turn:openrelay.metered.ca:443","turn:openrelay.metered.ca:443?transport=tcp"],username:"openrelayproject",credential:"openrelayproject"}]}};
+const CFG={debug:0};
 let pt=0;const slim=u=>P.map(p=>p.id==u?{...p,qs:(p.qs||[]).map(()=>0)}:{id:p.id,name:p.name,team:p.team});
 const flush=()=>{pt=0;Object.entries(conns).forEach(([u,c])=>{if(c.open)try{c.send({G,P:slim(u)})}catch(e){}});go()};
 const push=()=>{if(!pt)pt=setTimeout(flush,120)};
@@ -64,7 +64,7 @@ function connect(c,n,tries){const id=++jt;code=c;isHost=false;try{peer&&peer.des
 const fail=m=>{if(id!==jt)return;jt++;home();setStatus(m,1)},retry=()=>{if(id!==jt)return;if(tries<3)setTimeout(()=>{if(id===jt)connect(c,n,tries+1)},800+Math.random()*2500);else fail("Couldn't connect. Make sure the host's page is open and try again (a phone hotspot can help on strict Wi-Fi).")};
 const to=setTimeout(retry,12000);peer=new Peer(undefined,CFG);
 peer.on("error",e=>{clearTimeout(to);if(e.type=="peer-unavailable"&&tries>=2)fail("No game found with code "+c+". Check the code and try again.");else retry()});
-peer.on("open",()=>{if(id!==jt)return;setStatus("Server connected. Looking for game "+c+"…");hc=peer.connect("bbattle-"+c,{reliable:true,serialization:"json"});
+peer.on("open",()=>{if(id!==jt)return;setStatus("Server connected. Looking for game "+c+"…");hc=peer.connect("bbattle-"+c,{reliable:true});
 hc.on("open",()=>{clearTimeout(to);if(id!==jt)return;ok=true;setStatus("Game found! Joining…");hc.send({t:"join",uid,name:n})});
 hc.on("data",m=>{if(id!==jt)return;if(m.t=="kick"){code="";alert("You were removed from the game by the host.");home();return}G=m.G;P=m.P;go()});
 hc.on("close",()=>{if(id!==jt||!code)return;ok?setTimeout(()=>{if(id===jt)connect(c,n,0)},1000):retry()})})}
